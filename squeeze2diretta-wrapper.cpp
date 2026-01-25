@@ -350,7 +350,7 @@ int main(int argc, char* argv[]) {
     std::cout << std::endl;
 
     // Read audio data from pipe and send to Diretta
-    const size_t CHUNK_SIZE = 8192;  // frames per read
+    const size_t CHUNK_SIZE = 2048;  // frames per read (smaller chunks for better flow control)
     size_t bytes_per_frame = (format.bitDepth / 8) * format.channels;
     size_t buffer_size = CHUNK_SIZE * bytes_per_frame;
 
