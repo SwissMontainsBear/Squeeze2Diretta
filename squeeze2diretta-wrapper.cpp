@@ -202,11 +202,7 @@ std::vector<std::string> build_squeezelite_args(const Config& config) {
         args.push_back(config.codecs);
     }
 
-    // Sample rates (if specified)
-    if (!config.rates.empty()) {
-        args.push_back("-r");
-        args.push_back(config.rates);
-    }
+    // Note: Sample rates already handled above (lines 171-177)
 
     return args;
 }
@@ -378,6 +374,23 @@ int main(int argc, char* argv[]) {
         // Debug first few reads
         if (g_verbose && total_frames < CHUNK_SIZE * 5) {
             std::cout << "Read: " << bytes_read << " bytes, " << num_frames << " frames" << std::endl;
+
+            // Check if data is silence (all zeros) or has audio content
+            int32_t* samples = reinterpret_cast<int32_t*>(buffer.data());
+            int32_t max_sample = 0;
+            int32_t min_sample = 0;
+            for (size_t i = 0; i < num_frames * 2 && i < 100; i++) {  // Check first 100 samples
+                if (samples[i] > max_sample) max_sample = samples[i];
+                if (samples[i] < min_sample) min_sample = samples[i];
+            }
+            std::cout << "  Sample range: [" << min_sample << " .. " << max_sample << "]" << std::endl;
+
+            // Show first few bytes in hex
+            std::cout << "  First 16 bytes: ";
+            for (int i = 0; i < 16 && i < bytes_read; i++) {
+                printf("%02x ", buffer[i]);
+            }
+            std::cout << std::endl;
         }
 
         // Send to Diretta
