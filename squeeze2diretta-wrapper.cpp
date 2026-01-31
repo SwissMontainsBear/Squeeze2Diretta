@@ -595,7 +595,7 @@ int main(int argc, char* argv[]) {
             frames_sent = 0;
 
             std::cout << "[Diretta Reopened] Ready for " << (is_dsd ? "DSD" : "PCM")
-                      << " at " << new_rate << "Hz" << std::endl;
+                      << " at " << actual_rate << "Hz" << std::endl;
         }
 
         ssize_t bytes_read = read(fifo_fd, buffer.data(), buffer_size);
