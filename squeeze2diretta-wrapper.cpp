@@ -45,9 +45,9 @@ static pid_t squeezelite_pid = 0;
 static bool running = true;
 static std::unique_ptr<DirettaSync> g_diretta;  // For signal handler access
 static std::atomic<unsigned int> g_current_sample_rate{44100};  // Current detected sample rate
-static std::atomic<bool> g_sample_rate_changed{false};  // Flag when sample rate changes
 static std::atomic<bool> g_is_dsd{false};  // Current format is DSD (true) or PCM (false)
-static std::atomic<bool> g_format_changed{false};  // Flag when format (PCM/DSD) changes
+static std::atomic<bool> g_need_reopen{false};  // Flag when Diretta needs to be reopened
+static std::atomic<bool> g_format_pending{false};  // Format change detected, waiting for sample rate
 
 // Signal handler for clean shutdown
 void signal_handler(int sig) {
@@ -251,10 +251,11 @@ void monitor_squeezelite_stderr(int stderr_fd) {
                 bool was_dsd = g_is_dsd.load();
                 if (!was_dsd) {
                     if (g_verbose) {
-                        std::cout << "\n[Format Change] PCM -> DSD" << std::endl;
+                        std::cout << "\n[Format Change] PCM -> DSD (waiting for sample rate...)" << std::endl;
                     }
                     g_is_dsd.store(true);
-                    g_format_changed.store(true);
+                    g_format_pending.store(true);
+                    // Don't trigger reopen yet, wait for sample rate
                 }
             }
             // Check for PCM codec
@@ -262,10 +263,11 @@ void monitor_squeezelite_stderr(int stderr_fd) {
                 bool was_dsd = g_is_dsd.load();
                 if (was_dsd) {
                     if (g_verbose) {
-                        std::cout << "\n[Format Change] DSD -> PCM" << std::endl;
+                        std::cout << "\n[Format Change] DSD -> PCM (waiting for sample rate...)" << std::endl;
                     }
                     g_is_dsd.store(false);
-                    g_format_changed.store(true);
+                    g_format_pending.store(true);
+                    // Don't trigger reopen yet, wait for sample rate
                 }
             }
 
@@ -273,14 +275,16 @@ void monitor_squeezelite_stderr(int stderr_fd) {
             if (std::regex_search(line, match, sample_rate_regex)) {
                 unsigned int new_rate = std::stoul(match[1].str());
                 unsigned int current_rate = g_current_sample_rate.load();
+                bool format_pending = g_format_pending.load();
 
-                if (new_rate != current_rate) {
-                    if (g_verbose) {
+                if (new_rate != current_rate || format_pending) {
+                    if (g_verbose && new_rate != current_rate) {
                         std::cout << "\n[Sample Rate Change] " << current_rate
                                   << "Hz -> " << new_rate << "Hz" << std::endl;
                     }
                     g_current_sample_rate.store(new_rate);
-                    g_sample_rate_changed.store(true);
+                    g_format_pending.store(false);  // Clear pending flag
+                    g_need_reopen.store(true);  // Trigger reopen with new format + rate
                 }
             }
 
@@ -499,14 +503,14 @@ int main(int argc, char* argv[]) {
     uint64_t frames_sent = 0;
 
     while (running) {
-        // Check for format change (PCM ↔ DSD)
-        if (g_format_changed.load()) {
+        // Check if Diretta needs to be reopened (format or sample rate change)
+        if (g_need_reopen.load()) {
             bool is_dsd = g_is_dsd.load();
             unsigned int new_rate = g_current_sample_rate.load();
-            g_format_changed.store(false);
+            g_need_reopen.store(false);
 
-            std::cout << "\n[Reopening Diretta] Format changed to "
-                      << (is_dsd ? "DSD" : "PCM") << " at " << new_rate << "Hz" << std::endl;
+            std::cout << "\n[Reopening Diretta] " << (is_dsd ? "DSD" : "PCM")
+                      << " at " << new_rate << "Hz" << std::endl;
 
             // Close current Diretta connection
             g_diretta->close();
@@ -546,32 +550,6 @@ int main(int argc, char* argv[]) {
 
             std::cout << "[Diretta Reopened] Ready for " << (is_dsd ? "DSD" : "PCM")
                       << " at " << new_rate << "Hz" << std::endl;
-        }
-        // Check for sample rate change (within same format)
-        else if (g_sample_rate_changed.load()) {
-            unsigned int new_rate = g_current_sample_rate.load();
-            g_sample_rate_changed.store(false);
-
-            std::cout << "\n[Reopening Diretta] Sample rate changed to " << new_rate << "Hz" << std::endl;
-
-            // Close current Diretta connection
-            g_diretta->close();
-
-            // Update format with new sample rate
-            format.sampleRate = new_rate;
-
-            // Reopen Diretta with new format
-            if (!g_diretta->open(format)) {
-                std::cerr << "Failed to reopen Diretta with new sample rate" << std::endl;
-                running = false;
-                break;
-            }
-
-            // Reset timing for new sample rate
-            start_time = std::chrono::steady_clock::now();
-            frames_sent = 0;
-
-            std::cout << "[Diretta Reopened] Ready for " << new_rate << "Hz audio" << std::endl;
         }
 
         ssize_t bytes_read = read(fifo_fd, buffer.data(), buffer_size);
