@@ -46,6 +46,8 @@ static bool running = true;
 static std::unique_ptr<DirettaSync> g_diretta;  // For signal handler access
 static std::atomic<unsigned int> g_current_sample_rate{44100};  // Current detected sample rate
 static std::atomic<bool> g_sample_rate_changed{false};  // Flag when sample rate changes
+static std::atomic<bool> g_is_dsd{false};  // Current format is DSD (true) or PCM (false)
+static std::atomic<bool> g_format_changed{false};  // Flag when format (PCM/DSD) changes
 
 // Signal handler for clean shutdown
 void signal_handler(int sig) {
@@ -222,6 +224,9 @@ void monitor_squeezelite_stderr(int stderr_fd) {
 
     // Regex to match: "track start sample rate: XXXXX"
     std::regex sample_rate_regex(R"(track start sample rate:\s*(\d+))");
+    // Regex to match DSD codec: "codec open: 'd'" or DSD-related messages
+    std::regex dsd_codec_regex(R"(codec open: 'd')");
+    std::regex pcm_codec_regex(R"(codec open: '[fpom]')");  // flac, pcm, ogg, mp3
 
     while (running) {
         ssize_t bytes_read = read(stderr_fd, buffer, sizeof(buffer) - 1);
@@ -239,8 +244,32 @@ void monitor_squeezelite_stderr(int stderr_fd) {
             std::string line = line_buffer.substr(0, pos);
             line_buffer.erase(0, pos + 1);
 
-            // Check for sample rate
             std::smatch match;
+
+            // Check for DSD codec
+            if (std::regex_search(line, match, dsd_codec_regex)) {
+                bool was_dsd = g_is_dsd.load();
+                if (!was_dsd) {
+                    if (g_verbose) {
+                        std::cout << "\n[Format Change] PCM -> DSD" << std::endl;
+                    }
+                    g_is_dsd.store(true);
+                    g_format_changed.store(true);
+                }
+            }
+            // Check for PCM codec
+            else if (std::regex_search(line, match, pcm_codec_regex)) {
+                bool was_dsd = g_is_dsd.load();
+                if (was_dsd) {
+                    if (g_verbose) {
+                        std::cout << "\n[Format Change] DSD -> PCM" << std::endl;
+                    }
+                    g_is_dsd.store(false);
+                    g_format_changed.store(true);
+                }
+            }
+
+            // Check for sample rate
             if (std::regex_search(line, match, sample_rate_regex)) {
                 unsigned int new_rate = std::stoul(match[1].str());
                 unsigned int current_rate = g_current_sample_rate.load();
@@ -445,7 +474,20 @@ int main(int argc, char* argv[]) {
 
     // Read audio data from pipe and send to Diretta
     const size_t CHUNK_SIZE = 2048;  // frames per read (smaller chunks for better flow control)
-    size_t bytes_per_frame = (format.bitDepth / 8) * format.channels;
+
+    // Calculate bytes per frame (will be updated on format change)
+    auto calc_bytes_per_frame = [](const AudioFormat& fmt) -> size_t {
+        if (fmt.isDSD) {
+            // DSD: 1 bit per sample, 8 samples per byte
+            // For stereo: 2 channels interleaved
+            return fmt.channels;  // bytes per DSD frame (1 byte per channel)
+        } else {
+            // PCM: bitDepth/8 bytes per sample
+            return (fmt.bitDepth / 8) * fmt.channels;
+        }
+    };
+
+    size_t bytes_per_frame = calc_bytes_per_frame(format);
     size_t buffer_size = CHUNK_SIZE * bytes_per_frame;
 
     std::vector<uint8_t> buffer(buffer_size);
@@ -457,8 +499,56 @@ int main(int argc, char* argv[]) {
     uint64_t frames_sent = 0;
 
     while (running) {
-        // Check for sample rate change
-        if (g_sample_rate_changed.load()) {
+        // Check for format change (PCM ↔ DSD)
+        if (g_format_changed.load()) {
+            bool is_dsd = g_is_dsd.load();
+            unsigned int new_rate = g_current_sample_rate.load();
+            g_format_changed.store(false);
+
+            std::cout << "\n[Reopening Diretta] Format changed to "
+                      << (is_dsd ? "DSD" : "PCM") << " at " << new_rate << "Hz" << std::endl;
+
+            // Close current Diretta connection
+            g_diretta->close();
+
+            // Update format
+            format.isDSD = is_dsd;
+            format.sampleRate = new_rate;
+
+            if (is_dsd) {
+                // DSD: sample rate is the DSD clock rate
+                // DSD64  = 2822400 Hz (64x 44.1kHz)
+                // DSD128 = 5644800 Hz (128x 44.1kHz)
+                // DSD256 = 11289600 Hz (256x 44.1kHz)
+                format.isCompressed = false;
+                format.bitDepth = 1;  // DSD is 1-bit
+            } else {
+                // PCM: restore normal settings
+                format.isCompressed = false;
+                format.bitDepth = 32;  // S32_LE
+            }
+
+            // Reopen Diretta with new format
+            if (!g_diretta->open(format)) {
+                std::cerr << "Failed to reopen Diretta with new format" << std::endl;
+                running = false;
+                break;
+            }
+
+            // Recalculate bytes per frame for new format
+            bytes_per_frame = calc_bytes_per_frame(format);
+            buffer_size = CHUNK_SIZE * bytes_per_frame;
+            buffer.resize(buffer_size);
+
+            // Reset timing
+            start_time = std::chrono::steady_clock::now();
+            frames_sent = 0;
+
+            std::cout << "[Diretta Reopened] Ready for " << (is_dsd ? "DSD" : "PCM")
+                      << " at " << new_rate << "Hz" << std::endl;
+        }
+        // Check for sample rate change (within same format)
+        else if (g_sample_rate_changed.load()) {
             unsigned int new_rate = g_current_sample_rate.load();
             g_sample_rate_changed.store(false);
 
