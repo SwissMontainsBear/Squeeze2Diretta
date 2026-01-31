@@ -584,9 +584,16 @@ int main(int argc, char* argv[]) {
                 break;
             }
 
-            // Recalculate bytes per frame
-            // DSD (DoP/native) and PCM both use S32_LE/BE format from squeezelite
-            bytes_per_frame = (format.bitDepth / 8) * format.channels;  // 4 bytes/sample * 2 ch = 8
+            // Recalculate bytes per frame for reading from squeezelite
+            // Note: format.bitDepth is for DirettaSync (1 for DSD, 32 for PCM)
+            // But squeezelite always outputs S32_LE/BE (4 bytes per sample)
+            if (is_dsd && (dsd_format == DSDFormatType::U32_BE || dsd_format == DSDFormatType::U32_LE)) {
+                // Native DSD: squeezelite outputs S32_BE/LE (4 bytes/sample)
+                bytes_per_frame = 4 * format.channels;  // 4 bytes * 2 ch = 8
+            } else {
+                // DoP or PCM: use format.bitDepth
+                bytes_per_frame = (format.bitDepth / 8) * format.channels;
+            }
             buffer_size = CHUNK_SIZE * bytes_per_frame;
             buffer.resize(buffer_size);
 
