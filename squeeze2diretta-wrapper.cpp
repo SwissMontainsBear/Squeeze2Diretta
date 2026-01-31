@@ -33,6 +33,9 @@
 #include <memory>
 #include <thread>
 #include <chrono>
+#include <atomic>
+#include <sstream>
+#include <regex>
 
 // Version
 #define WRAPPER_VERSION "2.0.0"
@@ -41,6 +44,8 @@
 static pid_t squeezelite_pid = 0;
 static bool running = true;
 static std::unique_ptr<DirettaSync> g_diretta;  // For signal handler access
+static std::atomic<unsigned int> g_current_sample_rate{44100};  // Current detected sample rate
+static std::atomic<bool> g_sample_rate_changed{false};  // Flag when sample rate changes
 
 // Signal handler for clean shutdown
 void signal_handler(int sig) {
@@ -210,6 +215,56 @@ std::vector<std::string> build_squeezelite_args(const Config& config, const std:
     return args;
 }
 
+// Monitor squeezelite stderr for sample rate changes
+void monitor_squeezelite_stderr(int stderr_fd) {
+    char buffer[4096];
+    std::string line_buffer;
+
+    // Regex to match: "track start sample rate: XXXXX"
+    std::regex sample_rate_regex(R"(track start sample rate:\s*(\d+))");
+
+    while (running) {
+        ssize_t bytes_read = read(stderr_fd, buffer, sizeof(buffer) - 1);
+
+        if (bytes_read <= 0) {
+            break;
+        }
+
+        buffer[bytes_read] = '\0';
+        line_buffer += buffer;
+
+        // Process complete lines
+        size_t pos;
+        while ((pos = line_buffer.find('\n')) != std::string::npos) {
+            std::string line = line_buffer.substr(0, pos);
+            line_buffer.erase(0, pos + 1);
+
+            // Check for sample rate
+            std::smatch match;
+            if (std::regex_search(line, match, sample_rate_regex)) {
+                unsigned int new_rate = std::stoul(match[1].str());
+                unsigned int current_rate = g_current_sample_rate.load();
+
+                if (new_rate != current_rate) {
+                    if (g_verbose) {
+                        std::cout << "\n[Sample Rate Change] " << current_rate
+                                  << "Hz -> " << new_rate << "Hz" << std::endl;
+                    }
+                    g_current_sample_rate.store(new_rate);
+                    g_sample_rate_changed.store(true);
+                }
+            }
+
+            // Optionally print the line (for debugging)
+            if (g_verbose) {
+                std::cerr << line << std::endl;
+            }
+        }
+    }
+
+    close(stderr_fd);
+}
+
 int main(int argc, char* argv[]) {
 
     std::cout << "================================================================" << std::endl;
@@ -281,6 +336,17 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // Create pipe for squeezelite stderr (for sample rate detection)
+    int stderrfd[2];
+    if (pipe(stderrfd) == -1) {
+        std::cerr << "Failed to create stderr pipe: " << strerror(errno) << std::endl;
+        close(pipefd[0]);
+        close(pipefd[1]);
+        g_diretta->disable();
+        if (g_logRing) delete g_logRing;
+        return 1;
+    }
+
     // Build and display squeezelite command (with stdout output)
     std::vector<std::string> squeezelite_args = build_squeezelite_args(config, "-");
     if (g_verbose) {
@@ -304,8 +370,9 @@ int main(int argc, char* argv[]) {
     }
 
     if (squeezelite_pid == 0) {
-        // Child process: redirect stdout to pipe and run squeezelite
-        close(pipefd[0]);  // Close read end in child
+        // Child process: redirect stdout and stderr to pipes, then run squeezelite
+        close(pipefd[0]);    // Close read end of stdout pipe
+        close(stderrfd[0]);  // Close read end of stderr pipe
 
         // Redirect stdout to pipe write end
         if (dup2(pipefd[1], STDOUT_FILENO) == -1) {
@@ -313,6 +380,13 @@ int main(int argc, char* argv[]) {
             exit(1);
         }
         close(pipefd[1]);  // Close original pipe write fd
+
+        // Redirect stderr to pipe write end
+        if (dup2(stderrfd[1], STDERR_FILENO) == -1) {
+            std::cerr << "Failed to redirect stderr: " << strerror(errno) << std::endl;
+            exit(1);
+        }
+        close(stderrfd[1]);  // Close original stderr pipe write fd
 
         // Convert args to C-style array
         std::vector<char*> c_args;
@@ -329,9 +403,15 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
 
-    // Parent process: close write end and read from pipe
-    close(pipefd[1]);  // Close write end in parent
-    int fifo_fd = pipefd[0];  // Read from pipe
+    // Parent process: close write ends and setup pipes
+    close(pipefd[1]);    // Close write end of stdout pipe
+    close(stderrfd[1]);  // Close write end of stderr pipe
+    int fifo_fd = pipefd[0];      // Read audio from stdout pipe
+    int stderr_fd = stderrfd[0];  // Read logs from stderr pipe
+
+    // Launch thread to monitor stderr for sample rate changes
+    std::thread stderr_monitor(monitor_squeezelite_stderr, stderr_fd);
+    stderr_monitor.detach();  // Run independently
 
     std::cout << "Squeezelite started (PID: " << squeezelite_pid << ")" << std::endl;
     std::cout << "Waiting for audio stream..." << std::endl;
@@ -377,6 +457,33 @@ int main(int argc, char* argv[]) {
     uint64_t frames_sent = 0;
 
     while (running) {
+        // Check for sample rate change
+        if (g_sample_rate_changed.load()) {
+            unsigned int new_rate = g_current_sample_rate.load();
+            g_sample_rate_changed.store(false);
+
+            std::cout << "\n[Reopening Diretta] Sample rate changed to " << new_rate << "Hz" << std::endl;
+
+            // Close current Diretta connection
+            g_diretta->close();
+
+            // Update format with new sample rate
+            format.sampleRate = new_rate;
+
+            // Reopen Diretta with new format
+            if (!g_diretta->open(format)) {
+                std::cerr << "Failed to reopen Diretta with new sample rate" << std::endl;
+                running = false;
+                break;
+            }
+
+            // Reset timing for new sample rate
+            start_time = std::chrono::steady_clock::now();
+            frames_sent = 0;
+
+            std::cout << "[Diretta Reopened] Ready for " << new_rate << "Hz audio" << std::endl;
+        }
+
         ssize_t bytes_read = read(fifo_fd, buffer.data(), buffer_size);
 
         if (bytes_read <= 0) {
@@ -395,7 +502,8 @@ int main(int argc, char* argv[]) {
 
         // Debug first few reads and periodic sample range checks
         bool show_detail = (total_frames < CHUNK_SIZE * 5);
-        bool show_periodic = (total_frames % (44100 * 2) < CHUNK_SIZE);  // Every 2 seconds
+        unsigned int current_rate = format.sampleRate;
+        bool show_periodic = (total_frames % (current_rate * 2) < CHUNK_SIZE);  // Every 2 seconds
 
         if (g_verbose && (show_detail || show_periodic)) {
             std::cout << "Read: " << bytes_read << " bytes, " << num_frames << " frames" << std::endl;
@@ -449,9 +557,9 @@ int main(int argc, char* argv[]) {
             std::this_thread::sleep_until(expected_time);
         }
 
-        // Print progress every ~10 seconds at 44.1kHz
-        if (g_verbose && total_frames % (44100 * 10) < CHUNK_SIZE) {
-            double seconds = static_cast<double>(total_frames) / 44100.0;
+        // Print progress every ~10 seconds
+        if (g_verbose && total_frames % (current_rate * 10) < CHUNK_SIZE) {
+            double seconds = static_cast<double>(total_frames) / static_cast<double>(current_rate);
             std::cout << "Streamed: " << std::fixed << std::setprecision(1)
                       << seconds << "s (" << (total_bytes / 1024 / 1024) << " MB)" << std::endl;
         }
