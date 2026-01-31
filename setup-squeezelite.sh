@@ -190,9 +190,9 @@ main() {
         cmake ..
         make -j$(nproc)
 
-        if [ -f "squeeze2diretta-wrapper" ]; then
+        if [ -f "squeeze2diretta" ]; then
             echo -e "${GREEN}Build successful${NC}"
-            echo "Binary: $(pwd)/squeeze2diretta-wrapper"
+            echo "Binary: $(pwd)/squeeze2diretta"
         else
             echo -e "${RED}Build failed${NC}"
             exit 1
