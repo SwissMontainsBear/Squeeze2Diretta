@@ -521,9 +521,7 @@ int main(int argc, char* argv[]) {
     std::cout << std::endl;
 
     // Read audio data from pipe and send to Diretta
-    // For DSD: 4096 frames * 8 bytes/frame = 32768 bytes per packet
-    // For PCM: 4096 frames * 8 bytes/frame = 32768 bytes per packet
-    const size_t CHUNK_SIZE = 4096;  // frames per read
+    const size_t CHUNK_SIZE = 2048;  // frames per read (16384 bytes for DSD/PCM)
 
     // Calculate bytes per frame - always PCM: (bitDepth/8) * channels
     size_t bytes_per_frame = (format.bitDepth / 8) * format.channels;
@@ -660,7 +658,34 @@ int main(int argc, char* argv[]) {
         }
 
         // Send to Diretta
-        size_t written = g_diretta->sendAudio(buffer.data(), num_samples);
+        size_t written;
+
+        if (format.isDSD && (static_cast<DSDFormatType>(g_dsd_format_type.load()) == DSDFormatType::U32_BE ||
+                             static_cast<DSDFormatType>(g_dsd_format_type.load()) == DSDFormatType::U32_LE)) {
+            // For native DSD: Convert from interleaved to planar format
+            // Squeezelite sends: [L0L0L0L0 R0R0R0R0 L1L1L1L1 R1R1R1R1...]
+            // DirettaSync expects: [L0L0L0L0 L1L1L1L1...][R0R0R0R0 R1R1R1R1...]
+
+            std::vector<uint8_t> planar_buffer(bytes_read);
+            size_t bytes_per_channel = bytes_read / format.channels;
+
+            // De-interleave: separate L and R channels
+            for (size_t frame = 0; frame < num_frames; frame++) {
+                size_t src_offset = frame * bytes_per_frame;
+                size_t dst_offset_L = frame * 4;  // 4 bytes per DSD group
+                size_t dst_offset_R = bytes_per_channel + frame * 4;
+
+                // Copy L channel (first 4 bytes of frame)
+                memcpy(&planar_buffer[dst_offset_L], &buffer[src_offset], 4);
+                // Copy R channel (second 4 bytes of frame)
+                memcpy(&planar_buffer[dst_offset_R], &buffer[src_offset + 4], 4);
+            }
+
+            written = g_diretta->sendAudio(planar_buffer.data(), num_samples);
+        } else {
+            // PCM or DoP: send as-is (already in correct format)
+            written = g_diretta->sendAudio(buffer.data(), num_samples);
+        }
 
         // Debug first few writes
         if (g_verbose && show_detail) {
