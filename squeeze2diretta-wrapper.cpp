@@ -579,10 +579,11 @@ int main(int argc, char* argv[]) {
             format.bitDepth = bit_depth;  // 1 for native DSD, 32 for DoP/PCM
 
             // CRITICAL: Tell DirettaSync the source DSD format
-            // Testing: Try DSF (LSB) to see if bit reversal helps
+            // Since we're doing byte swap manually, tell DirettaSync data is MSB (DFF)
+            // to avoid bit-reversal - DirettaSync will only do final adjustments
             if (is_dsd && (dsd_format == DSDFormatType::U32_BE || dsd_format == DSDFormatType::U32_LE)) {
-                format.dsdFormat = AudioFormat::DSDFormat::DSF;  // Force LSB (with bit reversal)
-                std::cout << "[DSD Format] Set to DSF (LSB) - testing with bit reversal" << std::endl;
+                format.dsdFormat = AudioFormat::DSDFormat::DFF;  // MSB (no bit reversal by DirettaSync)
+                std::cout << "[DSD Format] Set to DFF (MSB) - we handle byte swap" << std::endl;
             }
 
             // Set rate for timing calculations
