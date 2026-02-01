@@ -58,33 +58,40 @@ This tool acts as a **wrapper** that:
 
 ## Architecture
 
-\`\`\`
-┌─────────────────────────────┐
-│  Logitech Media Server      │  (LMS on any network device)
-└─────────────┬───────────────┘
-              │ HTTP Streaming
-              ▼
-┌───────────────────────────────────────────────────────────────┐
-│  squeeze2diretta                                              │
-│  ┌─────────────────┐         ┌─────────────────────────────┐  │
-│  │  Squeezelite    │────────▶│      DirettaSync            │  │
-│  │  (decoder)      │ stdout  │  (from DirettaRendererUPnP) │  │
-│  │                 │  pipe   │                             │  │
-│  │  - DSF/DFF→DSD  │         │  - Format conversion        │  │
-│  │  - FLAC→PCM     │         │  - SIMD optimizations       │  │
-│  │  - Rate change  │         │  - Low-latency buffers      │  │
-│  └─────────────────┘         └──────────────┬──────────────┘  │
-└───────────────────────────────────────────────┼────────────────┘
-              │ Diretta Protocol (UDP/Ethernet)
-              ▼
-┌─────────────────────────────┐
-│      Diretta TARGET         │  (Memory Play, GentooPlayer, DDC-0, etc.)
-└─────────────┬───────────────┘
-              ▼
-┌─────────────────────────────┐
-│            DAC              │
-└─────────────────────────────┘
-\`\`\`
+```
++---------------------------+
+|  Logitech Media Server    |  (LMS on any network device)
++-------------+-------------+
+              |
+              | HTTP Streaming
+              v
++-------------------------------------------------------------+
+|  squeeze2diretta                                            |
+|                                                             |
+|  +------------------+        +---------------------------+  |
+|  |   Squeezelite    | -----> |      DirettaSync          |  |
+|  |   (decoder)      | stdout |  (from DirettaRendererUPnP)|  |
+|  |                  |  pipe  |                           |  |
+|  |  - DSF/DFF->DSD  |        |  - Format conversion      |  |
+|  |  - FLAC->PCM     |        |  - SIMD optimizations     |  |
+|  |  - Rate change   |        |  - Low-latency buffers    |  |
+|  +------------------+        +-------------+-------------+  |
+|                                            |                |
++--------------------------------------------+----------------+
+                                             |
+                        Diretta Protocol (UDP/Ethernet)
+                                             |
+                                             v
+                         +-------------------+-------------------+
+                         |           Diretta TARGET             |
+                         |  (Memory Play, GentooPlayer, DDC-0)  |
+                         +-------------------+-------------------+
+                                             |
+                                             v
+                                    +--------+--------+
+                                    |       DAC       |
+                                    +-----------------+
+```
 
 ---
 
