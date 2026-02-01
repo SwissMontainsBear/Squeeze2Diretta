@@ -687,15 +687,23 @@ int main(int argc, char* argv[]) {
             size_t bytes_per_channel = bytes_read / format.channels;
 
             // De-interleave: separate L and R channels
+            // TESTING: Also reverse byte order in each 4-byte group (Big Endian → Little Endian)
             for (size_t frame = 0; frame < num_frames; frame++) {
                 size_t src_offset = frame * bytes_per_frame;
                 size_t dst_offset_L = frame * 4;  // 4 bytes per DSD group
                 size_t dst_offset_R = bytes_per_channel + frame * 4;
 
-                // Copy L channel (first 4 bytes of frame)
-                memcpy(&planar_buffer[dst_offset_L], &buffer[src_offset], 4);
-                // Copy R channel (second 4 bytes of frame)
-                memcpy(&planar_buffer[dst_offset_R], &buffer[src_offset + 4], 4);
+                // Copy L channel with byte reversal (Big Endian → Little Endian)
+                planar_buffer[dst_offset_L + 0] = buffer[src_offset + 3];
+                planar_buffer[dst_offset_L + 1] = buffer[src_offset + 2];
+                planar_buffer[dst_offset_L + 2] = buffer[src_offset + 1];
+                planar_buffer[dst_offset_L + 3] = buffer[src_offset + 0];
+
+                // Copy R channel with byte reversal
+                planar_buffer[dst_offset_R + 0] = buffer[src_offset + 7];
+                planar_buffer[dst_offset_R + 1] = buffer[src_offset + 6];
+                planar_buffer[dst_offset_R + 2] = buffer[src_offset + 5];
+                planar_buffer[dst_offset_R + 3] = buffer[src_offset + 4];
             }
 
             // Debug: Show before/after conversion for first packet with real data
