@@ -146,7 +146,7 @@ main() {
     # Compile
     echo -e "${GREEN}Compiling squeezelite...${NC}"
     make clean 2>/dev/null || true
-    make OPTS="-DRESAMPLE -DNO_FAAD" -j$(nproc)
+    make OPTS="-DDSD -DRESAMPLE -DNO_FAAD" -j$(nproc)
 
     if [ ! -f "squeezelite" ]; then
         echo -e "${RED}Compilation failed${NC}"
