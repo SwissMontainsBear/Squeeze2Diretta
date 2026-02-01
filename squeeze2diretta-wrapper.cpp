@@ -534,7 +534,7 @@ int main(int argc, char* argv[]) {
     // For rate limiting - track timing to send at correct sample rate
     auto start_time = std::chrono::steady_clock::now();
     uint64_t frames_sent = 0;
-    unsigned int rate_for_timing = current_rate;  // Rate to use for timing calculations
+    unsigned int rate_for_timing = format.sampleRate;  // Rate to use for timing calculations
 
     while (running) {
         // Check if Diretta needs to be reopened (sample rate or format change)
