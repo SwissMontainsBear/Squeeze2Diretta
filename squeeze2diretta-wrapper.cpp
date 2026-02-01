@@ -580,10 +580,17 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            std::cout << "\n[Reopening Diretta] " << (is_dsd ? "DSD" : "PCM")
-                      << " at " << actual_rate << "Hz";
-            if (is_dsd && (dsd_format == DSDFormatType::U32_BE || dsd_format == DSDFormatType::U32_LE)) {
+            // For DoP, treat as PCM for DirettaSync - the DAC will recognize DoP markers
+            bool diretta_is_dsd = is_dsd && (dsd_format != DSDFormatType::DOP);
+
+            std::cout << "\n[Reopening Diretta] ";
+            if (dsd_format == DSDFormatType::DOP) {
+                std::cout << "DoP (as PCM) at " << actual_rate << "Hz";
+            } else if (is_dsd) {
+                std::cout << "DSD at " << actual_rate << "Hz";
                 std::cout << " (squeezelite frame rate: " << squeezelite_rate << " Hz)";
+            } else {
+                std::cout << "PCM at " << actual_rate << "Hz";
             }
             std::cout << std::endl;
 
@@ -591,7 +598,9 @@ int main(int argc, char* argv[]) {
             g_diretta->close();
 
             // Update format
-            format.isDSD = is_dsd;
+            // For DoP: isDSD=false because DirettaSync should treat it as PCM
+            // The DAC will recognize the DoP markers (0x05/0xFA) and extract DSD
+            format.isDSD = diretta_is_dsd;
             format.sampleRate = actual_rate;  // True DSD bit rate or PCM rate
             format.isCompressed = false;
             format.bitDepth = bit_depth;  // 1 for native DSD, 32 for DoP/PCM
@@ -599,7 +608,7 @@ int main(int argc, char* argv[]) {
             // CRITICAL: Tell DirettaSync the source DSD format
             // Since we're doing byte swap manually, tell DirettaSync data is MSB (DFF)
             // to avoid bit-reversal - DirettaSync will only do final adjustments
-            if (is_dsd && (dsd_format == DSDFormatType::U32_BE || dsd_format == DSDFormatType::U32_LE)) {
+            if (diretta_is_dsd && (dsd_format == DSDFormatType::U32_BE || dsd_format == DSDFormatType::U32_LE)) {
                 format.dsdFormat = AudioFormat::DSDFormat::DFF;  // MSB (no bit reversal by DirettaSync)
                 std::cout << "[DSD Format] Set to DFF (MSB) - we handle byte swap" << std::endl;
             }
@@ -637,8 +646,15 @@ int main(int argc, char* argv[]) {
             start_time = std::chrono::steady_clock::now();
             frames_sent = 0;
 
-            std::cout << "[Diretta Reopened] Ready for " << (is_dsd ? "DSD" : "PCM")
-                      << " at " << actual_rate << "Hz" << std::endl;
+            std::cout << "[Diretta Reopened] Ready for ";
+            if (dsd_format == DSDFormatType::DOP) {
+                std::cout << "DoP";
+            } else if (diretta_is_dsd) {
+                std::cout << "DSD";
+            } else {
+                std::cout << "PCM";
+            }
+            std::cout << " at " << actual_rate << "Hz" << std::endl;
         }
 
         ssize_t bytes_read = read(fifo_fd, buffer.data(), buffer_size);
