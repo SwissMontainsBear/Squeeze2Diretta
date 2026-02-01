@@ -78,7 +78,7 @@ struct Config {
     std::string codecs = "";             // -c
     std::string rates = "";              // -r
     int sample_format = 24;              // -a (16, 24, or 32)
-    std::string dsd_format = "";         // -D [format]: empty for DoP, ":u32be" or ":u32le" for native DSD
+    std::string dsd_format = ":u32be";   // -D [format]: "dop" for DoP, ":u32be" (default) or ":u32le" for native DSD
 
     // Diretta options
     int diretta_target = 0;              // 0-based index (-1 = auto first)
@@ -233,9 +233,14 @@ std::vector<std::string> build_squeezelite_args(const Config& config, const std:
         args.push_back(config.codecs);
     }
 
-    // Enable native DSD output - always use :u32be for Diretta
+    // DSD output format (configurable via -D option)
+    // Default: :u32be (native DSD Big Endian for LMS)
+    // For Roon: use -D (DoP mode)
     args.push_back("-D");
-    args.push_back(":u32be");
+    if (config.dsd_format != "dop") {
+        args.push_back(config.dsd_format);  // :u32be or :u32le
+    }
+    // If "dop", just -D alone enables DoP mode in squeezelite
 
     // Debug logging - ALWAYS need decode+output for format detection
     // The monitor_squeezelite_stderr() function parses these logs to detect
