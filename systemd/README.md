@@ -2,42 +2,90 @@
 
 This directory contains systemd service files for running squeeze2diretta as a system service with automatic startup.
 
-## Quick Setup
+## Files
 
-### 1. Edit Service File
+| File | Description |
+|------|-------------|
+| `squeeze2diretta.service` | Systemd unit file |
+| `squeeze2diretta.conf` | Configuration file template |
+| `start-squeeze2diretta.sh` | Wrapper script that reads config |
 
-Edit `squeeze2diretta.service` and replace:
-- `YOURUSER` → Your Linux username (e.g., `dominique`)
-- `LMS_SERVER_IP` → Your LMS server IP address (e.g., `192.168.1.104`)
-- `TARGET_NUMBER` → Your Diretta target number from `--list-targets` (e.g., `1`)
+## Quick Setup (Recommended)
 
-### 2. Install Service
+The easiest way is to use the installer:
 
 ```bash
-# Copy service file to systemd
-sudo cp squeeze2diretta.service /etc/systemd/system/
-
-# Reload systemd
-sudo systemctl daemon-reload
-
-# Enable service (auto-start on boot)
-sudo systemctl enable squeeze2diretta
-
-# Start service now
-sudo systemctl start squeeze2diretta
+./install.sh
+# Choose option 4) Install systemd service only
 ```
 
-### 3. Check Status
+This automatically:
+1. Creates `/opt/squeeze2diretta/` directory
+2. Copies binaries (squeeze2diretta, squeezelite)
+3. Installs configuration file and wrapper script
+4. Installs and enables the systemd service
+
+## Manual Setup
+
+If you prefer manual installation:
+
+### 1. Create Installation Directory
 
 ```bash
-# View status
-sudo systemctl status squeeze2diretta
+sudo mkdir -p /opt/squeeze2diretta
+```
 
-# View real-time logs
-sudo journalctl -u squeeze2diretta -f
+### 2. Copy Binaries
 
-# View last 100 log lines
-sudo journalctl -u squeeze2diretta -n 100
+```bash
+sudo cp build/squeeze2diretta /opt/squeeze2diretta/
+sudo cp squeezelite/squeezelite /opt/squeeze2diretta/
+sudo chmod +x /opt/squeeze2diretta/squeeze2diretta
+sudo chmod +x /opt/squeeze2diretta/squeezelite
+```
+
+### 3. Copy Configuration Files
+
+```bash
+sudo cp systemd/squeeze2diretta.conf /opt/squeeze2diretta/
+sudo cp systemd/start-squeeze2diretta.sh /opt/squeeze2diretta/
+sudo chmod +x /opt/squeeze2diretta/start-squeeze2diretta.sh
+```
+
+### 4. Edit Configuration
+
+```bash
+sudo nano /opt/squeeze2diretta/squeeze2diretta.conf
+```
+
+**Required settings:**
+- `LMS_SERVER` → Your LMS server IP address (e.g., `192.168.1.104`)
+- `TARGET` → Your Diretta target number (run `--list-targets` to find it)
+
+**Optional settings:**
+- `PLAYER_NAME` → Name shown in LMS (default: squeeze2diretta)
+- `MAX_SAMPLE_RATE` → Maximum sample rate (default: 768000)
+- `DSD_FORMAT` → DSD output format (default: :u32be)
+- `VERBOSE` → Set to `-v` for debug output
+
+### 5. Find Your Diretta Target
+
+```bash
+/opt/squeeze2diretta/squeeze2diretta --list-targets
+```
+
+### 6. Install Service
+
+```bash
+sudo cp systemd/squeeze2diretta.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable squeeze2diretta
+```
+
+### 7. Start Service
+
+```bash
+sudo systemctl start squeeze2diretta
 ```
 
 ## Service Management
@@ -45,47 +93,61 @@ sudo journalctl -u squeeze2diretta -n 100
 ### Start/Stop/Restart
 
 ```bash
-# Start
 sudo systemctl start squeeze2diretta
-
-# Stop
 sudo systemctl stop squeeze2diretta
-
-# Restart
 sudo systemctl restart squeeze2diretta
-
-# Reload configuration
-sudo systemctl reload squeeze2diretta
 ```
 
 ### Enable/Disable Auto-Start
 
 ```bash
-# Enable auto-start on boot
-sudo systemctl enable squeeze2diretta
-
-# Disable auto-start
-sudo systemctl disable squeeze2diretta
-
-# Check if enabled
-systemctl is-enabled squeeze2diretta
+sudo systemctl enable squeeze2diretta   # Start on boot
+sudo systemctl disable squeeze2diretta  # Don't start on boot
+systemctl is-enabled squeeze2diretta    # Check status
 ```
 
-### Logs
+### View Logs
 
 ```bash
-# Follow logs (real-time)
+# Real-time logs
 sudo journalctl -u squeeze2diretta -f
 
-# Show last 50 lines
+# Last 50 lines
 sudo journalctl -u squeeze2diretta -n 50
 
-# Show logs since boot
+# Logs since boot
 sudo journalctl -u squeeze2diretta -b
 
-# Show logs for specific time period
+# Logs for specific time
 sudo journalctl -u squeeze2diretta --since "1 hour ago"
-sudo journalctl -u squeeze2diretta --since "2026-02-01 10:00:00"
+```
+
+### Check Status
+
+```bash
+sudo systemctl status squeeze2diretta
+```
+
+## Configuration Reference
+
+The configuration file `/opt/squeeze2diretta/squeeze2diretta.conf`:
+
+```bash
+# REQUIRED
+LMS_SERVER=192.168.1.100    # LMS server IP address
+TARGET=1                     # Diretta target number
+
+# OPTIONAL
+PLAYER_NAME=squeeze2diretta  # Player name in LMS
+MAX_SAMPLE_RATE=768000       # Max sample rate (Hz)
+DSD_FORMAT=:u32be            # DSD format (:u32be, :u32le, :dop)
+VERBOSE=""                   # Set to "-v" for debug
+EXTRA_OPTS=""                # Additional options
+```
+
+After modifying, restart the service:
+```bash
+sudo systemctl restart squeeze2diretta
 ```
 
 ## Performance Tuning
@@ -94,23 +156,19 @@ The service file includes performance optimizations:
 
 - **Nice=-10**: Higher CPU priority
 - **IOSchedulingClass=realtime**: Real-time I/O scheduling
-- **Restart=on-failure**: Automatic restart on crashes
 
 ### Real-Time Priority (Advanced)
 
-To enable real-time scheduling priority, uncomment these lines in the service file:
+To enable real-time scheduling, uncomment these lines in the service file:
 
 ```ini
 LimitRTPRIO=95
 LimitMEMLOCK=infinity
 ```
 
-Then add your user to the `audio` group and configure RT limits:
+Then configure RT limits:
 
 ```bash
-# Add user to audio group
-sudo usermod -aG audio $USER
-
 # Create RT limits configuration
 sudo nano /etc/security/limits.d/audio.conf
 ```
@@ -140,52 +198,58 @@ sudo journalctl -u squeeze2diretta -n 50
 
 ### Common Issues
 
-**Issue: Permission denied**
-- Check that `User=` matches your username
-- Verify file paths are correct
-- Ensure squeeze2diretta binary is executable: `chmod +x build/squeeze2diretta`
-
 **Issue: LMS server not found**
-- Verify LMS server IP is correct
+- Verify LMS_SERVER IP is correct in config
 - Check network connectivity: `ping LMS_SERVER_IP`
 - Check firewall allows port 3483 (SlimProto)
 
 **Issue: Diretta target not found**
-- Run `./build/squeeze2diretta --list-targets` to verify target number
+- Run `/opt/squeeze2diretta/squeeze2diretta --list-targets`
 - Check network connectivity to Diretta target
 - Verify Diretta target is powered on
 
-### Testing Before Installing
+**Issue: DSD plays as noise**
+- Ensure `DSD_FORMAT=:u32be` in config
+- Check DAC supports native DSD
 
-Test the command manually before installing the service:
+### Test Before Installing
+
+Test the wrapper script manually:
 
 ```bash
-# Copy the ExecStart line from service file and run it directly
-/home/YOURUSER/squeeze2diretta/build/squeeze2diretta \
-    --squeezelite /home/YOURUSER/squeeze2diretta/squeezelite/squeezelite \
-    -r 768000 -D :u32be \
-    -s LMS_SERVER_IP \
-    -n squeeze2diretta \
-    --target TARGET_NUMBER
-```
+# Source the config
+source /opt/squeeze2diretta/squeeze2diretta.conf
 
-If this works, then the service should work too.
+# Run the wrapper
+/opt/squeeze2diretta/start-squeeze2diretta.sh
+```
 
 ## Multiple Instances
 
 To run multiple squeeze2diretta instances (e.g., for different zones):
 
-1. Copy service file:
+1. Create separate config files:
 ```bash
-sudo cp squeeze2diretta.service squeeze2diretta-zone2.service
+sudo cp /opt/squeeze2diretta/squeeze2diretta.conf /opt/squeeze2diretta/zone2.conf
 ```
 
-2. Edit the new file to use different:
-   - Player name (`-n zone2`)
-   - Working directory (if different)
-   - Diretta target (`--target 2`)
+2. Edit zone2.conf with different settings:
+```bash
+PLAYER_NAME=zone2
+TARGET=2
+```
 
-3. Install and start:
+3. Create a new service file:
+```bash
+sudo cp /etc/systemd/system/squeeze2diretta.service /etc/systemd/system/squeeze2diretta-zone2.service
+```
+
+4. Edit to use zone2.conf:
+```ini
+EnvironmentFile=-/opt/squeeze2diretta/zone2.conf
+```
+
+5. Enable and start:
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now squeeze2diretta-zone2

@@ -13,7 +13,7 @@ set -e  # Exit on error
 # =============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION="2.0.0"
+VERSION="1.0.0"
 
 # Auto-detect latest Diretta SDK version
 detect_latest_sdk() {
@@ -556,7 +556,7 @@ fi
 
 # Log the command being executed
 echo "════════════════════════════════════════════════════════"
-echo "  Starting squeeze2diretta v2.0.0"
+echo "  Starting squeeze2diretta v1.0.0"
 echo "════════════════════════════════════════════════════════"
 echo ""
 echo "Configuration:"

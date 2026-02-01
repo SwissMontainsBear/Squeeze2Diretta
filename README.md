@@ -1,4 +1,4 @@
-# squeeze2diretta v2.0.0
+# squeeze2diretta v1.0.0
 
 **Squeezelite to Diretta Bridge - Native DSD & Hi-Res PCM Streaming**
 
@@ -8,7 +8,7 @@
 
 ---
 
-![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)
+![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![DSD](https://img.shields.io/badge/DSD-Native-green.svg)
 ![SDK](https://img.shields.io/badge/SDK-DIRETTA::Sync-orange.svg)
 
