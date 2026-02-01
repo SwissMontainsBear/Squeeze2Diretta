@@ -24,7 +24,10 @@ CMD="$CMD -s $LMS_SERVER"
 CMD="$CMD --target $TARGET"
 CMD="$CMD -n $PLAYER_NAME"
 CMD="$CMD -r $MAX_SAMPLE_RATE"
-CMD="$CMD -D $DSD_FORMAT"
+# DSD format - only add if not empty
+if [ -n "$DSD_FORMAT" ]; then
+    CMD="$CMD -D $DSD_FORMAT"
+fi
 
 # Optional verbose mode
 if [ -n "$VERBOSE" ]; then
