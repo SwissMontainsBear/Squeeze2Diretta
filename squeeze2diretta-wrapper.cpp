@@ -237,10 +237,14 @@ std::vector<std::string> build_squeezelite_args(const Config& config, const std:
     args.push_back("-D");
     args.push_back(":u32be");
 
-    // Debug logging (if verbose)
+    // Debug logging - ALWAYS need decode+output for format detection
+    // The monitor_squeezelite_stderr() function parses these logs to detect
+    // sample rate and DSD format changes
+    args.push_back("-d");
     if (config.verbose) {
-        args.push_back("-d");
-        args.push_back("all=info");
+        args.push_back("all=info");  // Full debug output
+    } else {
+        args.push_back("decode=info:output=info");  // Minimal for format detection
     }
 
     // Note: Sample rates already handled above (lines 171-177)
