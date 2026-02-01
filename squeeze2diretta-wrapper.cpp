@@ -610,15 +610,17 @@ int main(int argc, char* argv[]) {
                     std::fill(silence_buffer.begin(), silence_buffer.end(), 0x69);
                 }
 
-                // Send multiple silence buffers for smoother fade-out
-                for (int i = 0; i < 5; i++) {
+                // More buffers when exiting DSD mode (DSD→PCM needs more fade-out)
+                int num_buffers = format.isDSD ? 8 : 5;
+                for (int i = 0; i < num_buffers; i++) {
                     size_t silence_samples = format.isDSD ?
                         (silence_bytes * 8) / format.channels : SILENCE_FRAMES;
                     g_diretta->sendAudio(silence_buffer.data(), silence_samples);
                 }
 
-                // Delay to let silence propagate through DAC pipeline
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                // Longer delay when exiting DSD mode
+                int delay_ms = format.isDSD ? 80 : 50;
+                std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
             }
 
             // Close current Diretta connection
