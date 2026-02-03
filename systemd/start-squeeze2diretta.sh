@@ -20,6 +20,7 @@ PLAYER_NAME="${PLAYER_NAME:-squeeze2diretta}"
 MAX_SAMPLE_RATE="${MAX_SAMPLE_RATE:-768000}"
 DSD_FORMAT="${DSD_FORMAT:-u32be}"
 PAUSE_ON_START="${PAUSE_ON_START:-no}"
+IDLE_TIMEOUT="${IDLE_TIMEOUT:-0}"
 VERBOSE="${VERBOSE:-}"
 EXTRA_OPTS="${EXTRA_OPTS:-}"
 SQUEEZE2DIRETTA="$INSTALL_DIR/squeeze2diretta"
@@ -40,6 +41,11 @@ if [ "$DSD_FORMAT" = "dop" ]; then
     CMD="$CMD -D"
 elif [ "$DSD_FORMAT" = "u32be" ] || [ "$DSD_FORMAT" = "u32le" ]; then
     CMD="$CMD -D :$DSD_FORMAT"
+fi
+
+# Idle timeout (close output device when idle)
+if [ "$IDLE_TIMEOUT" != "0" ] && [ -n "$IDLE_TIMEOUT" ]; then
+    CMD="$CMD -C $IDLE_TIMEOUT"
 fi
 
 # Optional verbose mode
@@ -63,6 +69,7 @@ echo "  Diretta Target:   $TARGET"
 echo "  Player Name:      $PLAYER_NAME"
 echo "  Max Sample Rate:  $MAX_SAMPLE_RATE"
 echo "  DSD Format:       $DSD_FORMAT"
+echo "  Idle Timeout:     ${IDLE_TIMEOUT}s"
 echo "  Pause on Start:   $PAUSE_ON_START"
 echo ""
 echo "Command:"

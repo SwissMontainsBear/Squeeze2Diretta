@@ -92,6 +92,7 @@ struct Config {
     bool verbose = false;
     bool list_targets = false;
     std::string squeezelite_path = "squeezelite";  // Path to squeezelite binary
+    int idle_timeout = 0;                // -C: Close output device when idle (0 = disabled)
 };
 
 void print_usage(const char* prog) {
@@ -112,6 +113,8 @@ void print_usage(const char* prog) {
     std::cout << "                          -D           = DoP (DSD over PCM)" << std::endl;
     std::cout << "                          -D :u32be    = Native DSD Big Endian (MSB)" << std::endl;
     std::cout << "                          -D :u32le    = Native DSD Little Endian (LSB)" << std::endl;
+    std::cout << "  -C <timeout>          Close output when idle after <timeout> seconds" << std::endl;
+    std::cout << "                          (default: keep open while player is 'on')" << std::endl;
     std::cout << std::endl;
     std::cout << "Diretta Options:" << std::endl;
     std::cout << "  -t, --target <number> Diretta target number (default: 1 = first)" << std::endl;
@@ -157,7 +160,8 @@ Config parse_args(int argc, char* argv[]) {
             }
         }
         else if ((arg == "-s" || arg == "-n" || arg == "-m" || arg == "-M" ||
-                  arg == "-c" || arg == "-r" || arg == "-a" || arg == "-t" || arg == "--target") && i + 1 < argc) {
+                  arg == "-c" || arg == "-r" || arg == "-a" || arg == "-C" ||
+                  arg == "-t" || arg == "--target") && i + 1 < argc) {
             std::string value = argv[++i];
 
             if (arg == "-s") config.lms_server = value;
@@ -167,6 +171,7 @@ Config parse_args(int argc, char* argv[]) {
             else if (arg == "-c") config.codecs = value;
             else if (arg == "-r") config.rates = value;
             else if (arg == "-a") config.sample_format = std::stoi(value);
+            else if (arg == "-C") config.idle_timeout = std::stoi(value);
             else if (arg == "-t" || arg == "--target") config.diretta_target = std::stoi(value) - 1;  // Convert to 0-based
         }
         else if (arg == "--thread-mode" && i + 1 < argc) {
@@ -242,6 +247,12 @@ std::vector<std::string> build_squeezelite_args(const Config& config, const std:
         args.push_back(config.dsd_format);  // :u32be or :u32le
     }
     // If "dop", just -D alone enables DoP mode in squeezelite
+
+    // Idle timeout - close output device when idle
+    if (config.idle_timeout > 0) {
+        args.push_back("-C");
+        args.push_back(std::to_string(config.idle_timeout));
+    }
 
     // Debug logging - ALWAYS need decode+output for format detection
     // The monitor_squeezelite_stderr() function parses these logs to detect

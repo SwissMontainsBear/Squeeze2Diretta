@@ -556,6 +556,7 @@ PLAYER_NAME="${PLAYER_NAME:-squeeze2diretta}"
 MAX_SAMPLE_RATE="${MAX_SAMPLE_RATE:-768000}"
 DSD_FORMAT="${DSD_FORMAT:-u32be}"
 PAUSE_ON_START="${PAUSE_ON_START:-no}"
+IDLE_TIMEOUT="${IDLE_TIMEOUT:-0}"
 VERBOSE="${VERBOSE:-}"
 EXTRA_OPTS="${EXTRA_OPTS:-}"
 
@@ -581,6 +582,11 @@ else
     CMD="$CMD -D $DSD_FORMAT"
 fi
 
+# Idle timeout (close output device when idle)
+if [ "$IDLE_TIMEOUT" != "0" ] && [ -n "$IDLE_TIMEOUT" ]; then
+    CMD="$CMD -C $IDLE_TIMEOUT"
+fi
+
 # Optional verbose mode
 if [ -n "$VERBOSE" ]; then
     CMD="$CMD -v"
@@ -602,6 +608,7 @@ echo "  Diretta Target:   $TARGET"
 echo "  Player Name:      $PLAYER_NAME"
 echo "  Max Sample Rate:  $MAX_SAMPLE_RATE"
 echo "  DSD Format:       $DSD_FORMAT"
+echo "  Idle Timeout:     ${IDLE_TIMEOUT}s"
 echo "  Pause on Start:   $PAUSE_ON_START"
 echo ""
 echo "Command:"
@@ -680,6 +687,12 @@ DSD_FORMAT=u32be
 # This prevents music from auto-resuming after a reboot
 # Leave as "no" for normal LMS behavior (resume playback)
 PAUSE_ON_START=no
+
+# Idle timeout (in seconds)
+# Close the output device when idle after this many seconds
+# Set to 0 to keep it open while player is 'on' (default)
+# Recommended: 10-30 seconds to release the sound card when not playing
+IDLE_TIMEOUT=0
 
 # Verbose mode
 # Set to "-v" for debug output, leave empty for normal operation
