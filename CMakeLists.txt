@@ -73,38 +73,56 @@ if(BASE_ARCH STREQUAL "x64")
     endif()
     
 elseif(BASE_ARCH STREQUAL "aarch64")
-    # aarch64: Use k16 variant ONLY on Raspberry Pi 5 (not based on kernel version)
-    set(IS_RPI5 FALSE)
+    # aarch64: Prefer 16K page-size detection (k16), fallback to model (RPi5/CM5)
+    # Improved detection contributed by Filippo (GentooPlayer)
+    set(IS_K16 FALSE)
+    set(PAGE_SIZE "")
     set(DT_MODEL "")
 
-    # Prefer /proc/device-tree/model, fallback to /sys/firmware/devicetree/base/model
-    if(EXISTS "/proc/device-tree/model")
-        execute_process(
-            COMMAND sh -c "tr -d '\\0' < /proc/device-tree/model"
-            OUTPUT_VARIABLE DT_MODEL
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-        )
-    elseif(EXISTS "/sys/firmware/devicetree/base/model")
-        execute_process(
-            COMMAND sh -c "tr -d '\\0' < /sys/firmware/devicetree/base/model"
-            OUTPUT_VARIABLE DT_MODEL
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-        )
+    # 1) Detect runtime page size using getconf PAGESIZE
+    execute_process(
+        COMMAND getconf PAGESIZE
+        OUTPUT_VARIABLE PAGE_SIZE
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+
+    if(PAGE_SIZE STREQUAL "16384")
+        set(IS_K16 TRUE)
+        set(CPU_DESC "ARM64 with 16KB pages detected via getconf PAGESIZE")
+    else()
+        # 2) Fallback: check device-tree model for RPi5/CM5
+        if(EXISTS "/proc/device-tree/model")
+            execute_process(
+                COMMAND sh -c "tr -d '\\0' < /proc/device-tree/model"
+                OUTPUT_VARIABLE DT_MODEL
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+            )
+        elseif(EXISTS "/sys/firmware/devicetree/base/model")
+            execute_process(
+                COMMAND sh -c "tr -d '\\0' < /sys/firmware/devicetree/base/model"
+                OUTPUT_VARIABLE DT_MODEL
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+            )
+        endif()
+
+        if(DT_MODEL MATCHES "Raspberry Pi 5" OR DT_MODEL MATCHES "Raspberry Pi Compute Module 5")
+            set(IS_K16 TRUE)
+            set(CPU_DESC "${DT_MODEL} detected (using k16 variant)")
+        endif()
     endif()
 
-    if(DT_MODEL MATCHES "Raspberry Pi 5")
-        set(IS_RPI5 TRUE)
-    endif()
-
-    if(IS_RPI5)
+    if(IS_K16)
         set(DEFAULT_VARIANT "aarch64-linux-15k16")
-        set(CPU_DESC "Raspberry Pi 5 detected (using k16 variant)")
+        if(CPU_DESC STREQUAL "")
+            set(CPU_DESC "ARM64 16KB pages (k16 variant)")
+        endif()
     else()
         set(DEFAULT_VARIANT "aarch64-linux-15")
         if(DT_MODEL STREQUAL "")
-            set(CPU_DESC "Non-RPi5 ARM64 (using standard variant)")
+            set(CPU_DESC "ARM64 with 4KB pages (standard variant)")
         else()
-            set(CPU_DESC "Non-RPi5 ARM64 (${DT_MODEL}) (using standard variant)")
+            set(CPU_DESC "ARM64 (${DT_MODEL}) with 4KB pages (standard variant)")
         endif()
     endif()
 
