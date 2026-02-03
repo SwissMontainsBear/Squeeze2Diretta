@@ -81,7 +81,7 @@ echo ""
 # Function to send pause command to LMS
 send_pause_command() {
     # Wait for squeezelite to connect to LMS
-    sleep 1.2
+    sleep 0.5
 
     # URL-encode the player name (replace spaces with %20)
     ENCODED_NAME=$(echo "$PLAYER_NAME" | sed 's/ /%20/g')
